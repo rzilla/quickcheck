@@ -34,7 +34,7 @@ version = packageDescription("quickcheck")$Version
 Then, to install from source:
 ```{r, echo=FALSE, comment=""}
 cat(
-  paste0('install_github("RevolutionAnalytics/quickcheck@', version, '", subdir = "pkg")
+  paste0('install_github("rzilla/quickcheck@', version, '", subdir = "pkg")
 '))
 ```
 
@@ -42,7 +42,7 @@ Linux package:
 ```{r, echo=FALSE, comment=""}
 cat(
   paste0('install_url(
-  "https://github.com/RevolutionAnalytics/quickcheck/releases/download/', version, '/quickcheck_', version, '.tar.gz")
+  "https://github.com/rzilla/quickcheck/releases/download/', version, '/quickcheck_', version, '.tar.gz")
 '))
 ```
 
@@ -50,7 +50,7 @@ Windows package:
 ```{r, echo=FALSE, comment=""}
 cat(
   paste0('install_url(
-  "https://github.com/RevolutionAnalytics/quickcheck/releases/download/', version, '/quickcheck_', version, '.zip")
+  "https://github.com/rzilla/quickcheck/releases/download/', version, '/quickcheck_', version, '.zip")
 '))
 ```
 
