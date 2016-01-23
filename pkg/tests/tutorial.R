@@ -13,35 +13,34 @@ for(x in list(matrix(c(1,2,3,4), ncol = 2), matrix(c(5:10), ncol = 3)))
   test_that(
     "transpose  test",
     expect_true(
-### <b>
       all(sapply(1:nrow(x), function(i) all(x[i,] == t(x)[,i])))))
-### </b>
 rm(x)
 ## @knitr test
 library(quickcheck)
 test(
   forall(
     x = rmatrix(),
-### <b>
     any(dim(x) == c(0,0)) ||
-      all(sapply(1:nrow(x), function(i) all(x[i,] == t(x)[,i])))))
-### </b>
+      all(sapply(1:nrow(x), function(i) all(x[i,] == t(x)[,i])))),
+  about = "t")
 ## @knitr sample.size
 test(
   forall(
     x = rmatrix(),
     any(dim(x) == c(0,0)) ||
       all(sapply(1:nrow(x), function(i) all(x[i,] == t(x)[,i])))),
+  about = "t",
   sample.size = 100)
 ## @knitr expect
 test(
-  forall(x = rcharacter(), expect("error", stop(x))))
+  forall(x = rcharacter(), expect("error", stop(x))),
+  about = "stop")
 ## @knitr end
 if(FALSE)
 ## @knitr output
-test(forall(x = rdouble(), mean(x) > 0), stop = TRUE)
+test(forall(x = rdouble(), mean(x) > -0.2), stop = TRUE, about = "mean")
 ##  @knitr return-value
-test.out = test(forall(x = rdouble(), mean(x) > 0), stop = FALSE)
+test.out = test(forall(x = rdouble(), mean(x) > -0.2), stop = FALSE, about = "mean")
 ## @knitr end
 if(FALSE)
 ## @knitr repro
@@ -93,13 +92,13 @@ test(forall(x = rdouble(), is.reciprocal.self.inverse(x)))
 test(forall(x = rsample(c(0, -Inf, Inf)), is.reciprocal.self.inverse(x)))
 ## @knitr rdoublex
 rdoublex =
-	function(elements = c(mean = 100), size = c(max = 10)) {
-		data = rdouble(elements, size)
-		sample(
-			c(data, c(0, -Inf, Inf)),
-			size = length(data),
-			replace = FALSE)}
-rdoublex()
-rdoublex()
+  function(elements = c(mean = 0, sd = 1), size = c(min = 0, max = 100)) {
+    data = rdouble(elements, size)
+    sample(
+      c(data, c(0, -Inf, Inf)),
+      size = length(data),
+      replace = FALSE)}
+rdoublex(size = ~10)
+rdoublex(size = ~10)
 ## @knitr test-rdoublex
 test(forall(x = rdoublex(), is.reciprocal.self.inverse(x)))

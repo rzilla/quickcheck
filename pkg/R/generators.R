@@ -16,8 +16,8 @@
 #generators common
 default =
   function(x) {
-    x = lazy(x)
-    lazy_eval(x, as.list(quickcheck.env))}
+    x = substitute(x)
+    eval(x, quickcheck.env, parent.frame())}
 
 ## zipf
 
@@ -50,246 +50,250 @@ sample =
   function(x, size, ...)
     x[base::sample(length(x), size = size, ...)]
 
-
-#workaround for R bug
-fix.as.list =
-  function(as.fun) {
-    force(as.fun)
-    function(x, ...) {
-      dd = as.fun(x)
-      names(dd) = names(x)
-      dd}}
-
-as.list.Date = fix.as.list(base::as.list.Date)
-as.list.factor = fix.as.list(base::as.list.factor)
-
 #perform function argument like matching for vectors
 #macro-like, call only one level deep
 
-is.fofun =
-  function(x)
-    is.function(x) || is.formula(x)
+apply.default =
+  function(name, x, default) {
+    if(is.null(names(default)) || is.null(x))
+      x %||% default
+    else {
+      if(!all(names(x) %in% names(default)))
+        stop("Unsupported option(s) ", setdiff(names(x), names(default)), call. = FALSE)
+      length(x) = length(default)
+      nmask = {
+        if(is.null(names(x)))
+          rep(T, length(x))
+        else names(x) == ""}
+      names(x)[nmask]= setdiff(names(default), names(x))
+      structure(
+        lapply(names(default), function(n) apply.default(n, x[[n]], default[[n]])),
+        names = names(default))}}
+
+is.ffR = function(x) inherits(x, c("formula", "function", "RDG"))
 
 arg.match =
   function(arg, defaults = NULL) {
-    if(is.fofun(arg))
+    if(is.ffR(arg))
       arg
     else {
       name = as.character(substitute(arg))
       if(is.null(defaults))
         defaults =
-        as.list(
           eval.parent(
-            formals(sys.function(sys.parent()))[[name]]))
-      default.names = names(defaults)
-      default.length = length(defaults)
-      ff = function() mget(names(formals()), sys.frame(sys.nframe()))
-      formals(ff) = do.call(pairlist, as.list(defaults))
-      defaults = do.call(ff, as.list(arg))
-      if(length(defaults) > default.length)
-        stop("Argument can have elements ", default.names, " only")
-      defaults}}
+            formals(sys.function(sys.parent()))[[name]])
+      apply.default("", arg, defaults)}}
 
-#takes a rng in the R sense (rnorm, rpois etc) and extracts size data
-# accepts also formula
-# rng function needs a single argument, rng formula contains only size free var
+rdata_ =
+  function(x, size, ...) UseMethod("rdata_")
+
 rdata =
-  function(rng, size) {
-    data = {
-      if(is.function(rng))
-        do.call(rng, list(size))
-      else
-        eval(tail(as.list(rng), 1)[[1]], list(size = size), environment(rng))}
-    if(size != length(data)) {
+  function(x, size) {
+    data = rdata_(x, size)
+    if(is.null(size) || size == length(data))
+      data
+    else{
       if(length(data) > 0) {
         warning('recycling random numbers')
         rep_len(data, size)}
-      else stop("can't recycle no data")}
+      else stop("can't recycle no data")}}
+
+rdata_.function =
+  function(x, size, ...){
+    if(is.null(size))
+      x()
     else
-      data}
+      do.call(x, list(size))}
+
+rdata_.RDG =
+  function(x, size, ...){
+    if(is.null(size))
+      x()
+    else
+      do.call(x, list(size = ~size))}
+
+rdata_.formula =
+  function(x, size)
+    eval(
+      tail(as.list(x), 1)[[1]],
+      if(!is.null(size)) list(size = size),
+      environment(x))
+
 
 # accepts max or min, max or an rng function or formula (size spec)
 # returns random nonnegative integer,  from bilateral zipf by default
 #
 
 rsize =
-  function(size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
+  function() {
     retval = {
-      if(is.fofun(size))
-        as.integer(round(rdata(size, 1)))
+      if(is.ffR(size))
+        as.integer(round(rdata(size, if(is.function(size)) 1)))
       else {
         size = arg.match(size)
-        rzipf.range(1, size$min, size$max, s = 1)}}
+        rzipf.range(1, size[["min"]], size[["max"]], s = 1)}}
     stopifnot(retval >= 0)
     retval}
 
+default.vector.size = quote(c(min = 0, max = default(vector.size %||% 10 * severity)))
+formals(rsize) = list(size = default.vector.size)
+
 ## basic types
 
-rlogical =
-  function(
-    elements = c(p = 0.5),
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    if(!is.fofun(elements)) {
-      p = arg.match(elements)$p
-      elements =
-        function(n)
-          as.logical(rbinom(n, size = 1, prob = p))}
-    size = rsize(arg.match(size))
-    as.logical(rdata(elements, size))}
+as.RDG = function(x, ...) UseMethod("as.RDG")
+as.RDG.RDG = identity
+as.RDG.function =
+  function(x, ...)
+    structure(x, class = "RDG")
 
-rinteger =
-  function(
-    elements = {
-      r = default(integer.size %||% 10 * severity);
-      c(min = -r, max = r)},
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    if(!is.fofun(elements)){
-      args = arg.match(elements)
-      elements = function(n) floor(runif(n, args$min, args$max + 1))}
-    size = rsize(arg.match(size))
-    as.integer(rdata(elements, size))}
 
-rdouble =
-  function(
-    elements = c(mean = 0, sd = default(double.size %||% 10 * severity)),
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    if(!is.fofun(elements))
-      elements = do.call(Curry, c(list(rnorm), arg.match(elements)))
-    size = rsize(arg.match(size))
-    as.double(rdata(elements, size))}
+as.RNG = function(x, ...) UseMethod("as.RNG")
+
+as.RNG.list =
+  function(x, class)
+    switch(
+      class,
+      logical = function(n)  as.logical(rbinom(n, size = 1, prob = x$p)),
+      integer = function(n) floor(runif(n, x$min, x$max + 1)),
+      double =  function(n) rnorm(n,mean = x$mean, sd = x$sd),
+      character =
+        function(n){
+          #generate n.unique
+          n.unique = rsize(unname(x[c("unique.min", "unique.max")]))
+          #generate n.unique str lenghts according to n.char
+          n.char = rinteger(unname(x[c("nchar.min", "nchar.max")]), ~n.unique)
+          # create the strings
+          strings =
+            unname(
+              sapply(
+                split(
+                  sample(
+                    x = x$alphabet,
+                    size = sum(n.char),
+                    replace = TRUE),
+                  rep(1:length(n.char), n.char)),
+                paste,
+                collapse = ""))
+              if(min(n.char) == 0)
+                strings = c(strings, "")
+              # resample n time
+              sample(strings, n, replace = TRUE)},
+      factor = Curry(sample, x = 1:x$nlevels, replace = TRUE),
+      raw = Curry(sample, x = as.raw(x$min:x$max), replace = TRUE ),
+      Date =
+        Curry(sample, x = as.Date(x$from:x$to, origin = as.Date("1970-01-01")), replace = TRUE)
+    )
+
+is.RDG = function(x) class(x) == "RDG"
+
+vector.defaults =
+  function(elements)
+    list(elements = elements, size = default.vector.size)
+
+make.RDG =
+  function(class){
+    force(class)
+    RDG.defaults =
+      lapply(
+        alist(
+          logical =c(p = 0.5),
+          integer ={
+            r = default(integer.size %||% 10 * severity);
+            c(min = -r, max = r)},
+          double =  c(mean = 0, sd = default(double.size %||% 10 * severity)),
+          character =
+            list(
+              alphabet = c(letters, LETTERS, 0:9),
+              nchar.min = 0,
+              nchar.max = default(nchar.max %||% severity),
+              unique.min = 1,
+              unique.max = default(unique.max %||% severity)),
+          factor = c(nlevels = default(nlevels %||% severity)),
+          raw = c(min = 0, max = default(raw.max %||% severity)),
+          Date = c(from = as.Date("1950/01/01"), to = as.Date("2050/01/01"))),
+        vector.defaults)
+    as.RDG({
+      f =
+        function() {
+          if(!is.ffR(elements))
+            elements = as.RNG(arg.match(elements), class)
+          size = rsize(arg.match(size))
+          data = rdata(elements, size)
+          if(class == "factor")
+            as.factor(data)
+          else
+            as(data, class)}
+      formals(f) =
+        list(
+          elements = RDG.defaults[[class]]$elements,
+          size = RDG.defaults[[class]]$size)
+      f})}
+
+for(class in c("logical", "integer", "double", "character", "factor", "raw", "Date"))
+  assign(paste0("r", class), make.RDG(class))
 
 rnumeric =
-  function(
-    elements  =
-      list(
-        integer = c(max = default(integer.size %||% 10 * severity)),
-        double = 	c(mean = 0, sd = default(double.size %||% 10 * severity))),
-    size = c(min = 0, max = default(vector.size %||% 10 * severity)))
+  function(){
+    size = rsize(arg.match(size))
+    elements = arg.match(elements)
     mixture(
       list(
-        Curry(rdouble, elements = elements$double, size = size),
-        Curry(rinteger, elements = elements$integer, size = size)))()
+        Curry(
+          rdouble,
+          elements = c(mean = elements$double.mean, sd = elements$double.sd),
+          size = ~size),
+        Curry(
+          rinteger,
+          elements = c(min = elements$integer.min , max = elements$integer.max),
+          size = ~size)))()}
+
+formals(rnumeric) =
+  list(
+    elements  =
+      quote({
+        r = default(integer.size %||% 10 * severity);
+        c(integer.min = -r, integer.max = r,
+          double.mean = 0, double.sd = default(double.size %||% 10 * severity))}),
+    size = default.vector.size)
+
+rnumeric = as.RDG(rnumeric)
 
 ##rcomplex NAY
 
-rcharacter =
-  function(
-    elements =
-      list(
-        nchar = c(min = 0, max = default(nchar.size %||% severity)),
-        string = c(min = 0, max = default(character.max %||% severity))),
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    elements = arg.match(elements)
-    nchar = elements[["nchar"]]
-    string = elements[["string"]]
-    size = rsize(arg.match(size))
-    if(!is.fofun(nchar)) {
-      nn = nchar
-      nchar =
-        function(n)
-          rinteger(
-            elements =
-              arg.match(
-                nn,
-                c(min = 0, max = default(nchar.size %||% severity))),
-            size = ~n)}
-    if(!is.fofun(string)) {
-      ss = string
-      string =
-        function(n)
-          sapply(
-            rinteger(
-              elements =
-                arg.match(
-                  ss,
-                  c(min = 0, max = default(character.max %||% severity))),
-              size = ~n),
-            digest)}
-    unname(
-      substr(
-          rdata(string, size),
-        1,
-        rdata(nchar, size)))}
-
-rfactor =
-  function(
-    elements = c(nlevels = default(nlevels %||% severity)),
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    if(!is.fofun(elements))
-      elements = Curry(sample, x = 1:arg.match(elements)$nlevels, replace = TRUE)
-    size = rsize(arg.match(size))
-    as.factor(rdata(elements, size))}
-
-rraw =
-  function(
-    elements = c(min = 0, max = default(raw.max %||% severity)),
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    if(is.numeric(elements[[1]])) {
-      elements = arg.match(elements)
-      elements = as.raw(elements$min:elements$max)}
-    if(is.raw(elements))
-      elements = Curry(sample, x = elements, replace = TRUE )
-    size = rsize(arg.match(size))
-    as.raw(rdata(elements, size))}
-
 rlist =
-  function(
-    generator =
-      Curry(
-        rany,
-        generators =
-          list(
-            rlogical,
-            rinteger,
-            rdouble,
-            rcharacter,
-            rraw,
-            rDate,
-            rfactor,
-            Curry(rlist, size = size, height = height - 1))),
-    size = c(min = 0, max = default(list.size %||% severity)),
-    height = default(list.height %||% round(severity/2))) {
-    if (height == 0) NULL
-    else
-      replicate(
-        rsize(arg.match(size)),
-        generator(),
-        simplify = FALSE)}
+  as.RDG(
+    function(
+      generator =
+        Curry(
+          rany,
+          generators =
+            list(
+              rlogical,
+              rinteger,
+              rdouble,
+              rcharacter,
+              rraw,
+              rDate,
+              rfactor,
+              Curry(rlist, size = size, height = height - 1))),
+      size = c(min = 0, max = default(list.size %||% severity)),
+      height = default(list.height %||% round(severity/2))) {
+      if (height == 0) NULL
+      else
+        replicate(
+          rsize(arg.match(size)),
+          rdata(generator, NULL),
+          simplify = FALSE)})
 
 ratomic =
-  function(
-    generators = atomic.generators,
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    if(!is.fofun(size))
-      size = arg.match(size)
+  function(){
+    size = arg.match(size)
     mixture(
       lapply(
         generators,
         function(gg){
           hh = gg
           Curry(hh, size = size)}))()}
-
-rmatrix =
-  function(
-    generator = ratomic,
-    nrow = c(min = 0, max = default(matrix.nrow %||% 4 * severity)),
-    ncol = c(min = 0, max = default(matrix.ncol %||% severity))) {
-    nrow = rsize(arg.match(nrow))
-    ncol = rsize(arg.match(ncol))
-    matrix(generator(size = constant(nrow*ncol)), nrow = nrow, ncol = ncol)}
-
-rDate =
-  function(
-    elements = c(from = as.Date("1950/01/01"), to = as.Date("2050/01/01")),
-    size = c(min = 0, max = default(vector.size %||% 10 * severity))) {
-    if(is.character(elements))
-      elements = as.Date(elements)
-    if(class(elements) == "Date") {
-      elements = arg.match(elements)
-      dates = as.Date(elements[["from"]]:elements[["to"]], origin = as.Date("1970-01-01"))
-      elements = Curry(sample, x = dates, replace = TRUE)}
-    size = rsize(arg.match(size))
-    as.Date(rdata(elements, size), origin = as.Date("1970-01-01"))}
 
 atomic.generators =
   list(
@@ -301,49 +305,70 @@ atomic.generators =
     rDate = rDate,
     rfactor = rfactor)
 
+formals(ratomic) =
+  list(
+    generators = quote(atomic.generators),
+    size = default.vector.size)
+
+ratomic = as.RDG(ratomic)
+
+rmatrix =
+  as.RDG(
+    function(
+      elements = ratomic,
+      nrow = c(min = 0, max = default(matrix.nrow %||% 4 * severity)),
+      ncol = c(min = 0, max = default(matrix.ncol %||% severity))) {
+      nrow = rsize(arg.match(nrow))
+      ncol = rsize(arg.match(ncol))
+      matrix(rdata(elements, size = nrow*ncol), nrow = nrow, ncol = ncol)})
+
 rdata.frame =
-  function(
-    generator = ratomic,
-    nrow = c(min = 0, max = default(data.frame.nrow %||% 4 * severity)),
-    ncol = c(min = 0, max = default(data.frame.ncol %||% severity))) {
-    nrow = rsize(arg.match(nrow))
-    ncol = rsize(arg.match(ncol))
-    columns = replicate(ncol, generator(size = constant(nrow)), simplify = FALSE)
-    if(length(columns) > 0)
-      names(columns) = paste("col", 1:ncol)
-    do.call(data.frame, columns)}
+  as.RDG(
+    function(
+      elements = ratomic,
+      nrow = c(min = 0, max = default(data.frame.nrow %||% 4 * severity)),
+      ncol = c(min = 0, max = default(data.frame.ncol %||% severity))) {
+      nrow = rsize(arg.match(nrow))
+      ncol = rsize(arg.match(ncol))
+      columns = replicate(ncol, rdata(elements, size = nrow), simplify = FALSE)
+      if(length(columns) > 0)
+        names(columns) = paste("col", 1:ncol)
+      do.call(data.frame, c(columns, list(stringsAsFactors = FALSE)))})
 
 rfunction =
-  function()
-    sample(
-      do.call(
-        c,
-        lapply(
-          unlist(sapply(search(), ls)),
-          function(x) {
-            x = get(x)
-            if (is.function(x)) list(x) else list()})),
-      1)[[1]]
+  as.RDG(
+    function()
+      sample(
+        do.call(
+          c,
+          lapply(
+            unlist(sapply(search(), ls)),
+            function(x) {
+              x = get(x)
+              if (is.function(x)) list(x) else list()})),
+        1)[[1]])
 
 ## special distributions
 
 constant =
   function(const = NULL) {
     force(const)
-    function(...)
-      const	}
+    as.RDG(
+      function(...)
+        const)	}
 
 rsample =
-  function(elements, size = c(min = 0, max = ceiling(length(elements)/2)), replace = TRUE) {
-    sample(elements, rsize(arg.match(size)), replace = replace)}
+  as.RDG(
+    function(elements, size = c(min = 0, max = ceiling(length(elements)/2)), replace = TRUE) {
+      sample(elements, rsize(arg.match(size)), replace = replace)})
 
 ##combiners
-
 mixture =
-  function(generators) {
+  function(generators, weights = 1) {
     force(generators)
-    function(...)
-      sample(generators, 1)[[1]](...)}
+    as.RDG(
+      function(...)
+        sample(generators, 1, prob = rep_len(weights, length(generators)))[[1]](...))}
 
 # combine everything
 all.generators =
@@ -351,28 +376,23 @@ all.generators =
     list(rlist = rlist, rdata.frame = rdata.frame, rmatrix = rmatrix))
 
 rany =
-  function(generators = all.generators)
-    mixture(generators)()
+  as.RDG(
+    function(generators = all.generators)
+      mixture(generators)())
 
+#names
 rnamed =
-  function(
-    x,
-    names = list(
-      nchar = c(min = 0, max = default(nchar.size %||% severity)),
-      string = c(min = 0, max = default(character.max %||% severity)))) {
-    names(x) = rcharacter(elements = names, size = ~length(x))
-    x}
+  as.RDG(
+    function(
+      x,
+      names = rcharacter(size = ~length(x)))
+      structure(x, names = names))
 
 named =
   function(
     generator,
-    names = list(
-      nchar = c(min = 0, max = default(nchar.size %||% severity)),
-      string = c(min = 0, max = default(character.max %||% severity)))) {
-    function()
-      rnamed(
-        if(is.function(generator))
-          generator()
-        else
-          eval(tail(as.list(generator), 1)[[1]], environment(generator)),
-        names)}
+    rnames = rnamed)
+    as.RDG(
+      function() {
+        rnames(rdata(generator, NULL))})
+

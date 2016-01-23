@@ -16,37 +16,46 @@
 ## test (failure)
 library(quickcheck)
 
-stopifnot(expect("error", test(function(x = rcharacter()) stop(x))))
+pkg = "package:quickcheck"
+stopifnot(expect("error", test(function(x = rcharacter()) stop(x), about = "test")))
 
 #repro
 
-stopifnot(expect("error", repro(test(function() TRUE))))
+stopifnot(expect("error", repro(test(function() TRUE, about = "test"))))
 
-stopifnot(!expect("error", repro(test(function() FALSE, stop = FALSE), debug = FALSE)))
+stopifnot(!expect("error", repro(test(function() FALSE, stop = FALSE, about = "test"), debug = FALSE)))
 
-stopifnot(expect("warning", rinteger(elements= ~1)))
+stopifnot(expect("warning", rinteger(elements= ~1, size = c(min = 2))))
 
-## qc.options
-## qc.option
+print(
+  test.set(
+    ## qc.options
 
-test(
-function(
-  opts =
-    rsample(
-      names(formals(qc.options))[-1],
-      size = c(min = 1, max = length(formals(qc.options))),
-      replace = FALSE),
-  values = rinteger(size = ~length(opts))) {
-  args = as.list(values)
-  names(args) = opts
-  before = do.call(qc.options,  as.list(names(args)))
-  after = do.call(qc.options, args)
-  check = do.call(qc.options, as.list(names(args)))
-  check2 = lapply(as.list(names(args)), qc.option)
-  names(check2) = names(args)
-  do.call(qc.options, before)
-  identical(after[sort(names(after))], args[sort(names(args))]) &&
-    identical(after[sort(names(after))], check[sort(names(check))]) &&
-    identical(after[sort(names(after))], check2[sort(names(check2))]) })
+    test(
+      forall(x = rsize(), {qc.options(unique.max = x); qc.option("unique.max") == x}),
+      about = pkg),
 
-
+    ## qc.option
+    test(
+      function(
+        opts =
+          rsample(
+            names(formals(qc.options))[-1],
+            size = c(min = 1, max = length(formals(qc.options)) - 1),
+            replace = FALSE),
+        values = rinteger(elements = c(min = 1), size = ~length(opts))) {
+        args =
+          structure(
+            as.list(values),
+            names = opts)
+        before = do.call(qc.options,  as.list(names(args)))
+        after = do.call(qc.options, args)
+        check = do.call(qc.options, as.list(names(args)))
+        check2 = list()
+        for(n in names(args)) check2 = c(check2, qc.option(n))
+        names(check2) = names(args)
+        do.call(qc.options, before)
+        identical(after[sort(names(after))], args[sort(names(args))]) &&
+          identical(after[sort(names(after))], check[sort(names(check))]) &&
+          identical(after[sort(names(after))], check2[sort(names(check2))]) },
+      about = pkg)))
