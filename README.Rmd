@@ -26,7 +26,7 @@ Additional features include the `repro` function that supports reproducing and d
 library(httr)
 library(purrr)
 tags = content(GET("https://api.github.com/repos/rzilla/quickcheck/tags"))
-version = grep(pattern = "\\d+\\.\\d+\\.\\d+", x = map(tags, "name"), value = TRUE)[[1]]
+version = grep(pattern = "^\\d+\\.\\d+\\.\\d+$", x = map(tags, "name"), value = TRUE)[[1]]
 ```
 
 To install the latest release and its dependencies, enter the following expression:
